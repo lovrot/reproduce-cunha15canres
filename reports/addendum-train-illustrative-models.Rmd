@@ -46,27 +46,14 @@ trellis.par.set(caretTheme())
 ```
 
 ```{r}
-code_development <- TRUE
-if (code_development) {
-  ## During code development only
-  trCntrl <- trainControl(
-    method = "repeatedcv",
-    number = 3,
-    repeats = 2,
-    classProbs = TRUE,
-    summaryFunction = twoClassSummary)
-  tune_length <- 3
-  n_keep <- 500
-} else {
-  trCntrl <- trainControl(
-    method = "repeatedcv",
-    number = 3,
-    repeats = 5,
-    classProbs = TRUE,
-    summaryFunction = twoClassSummary)
-  tune_length <- 5
-  n_keep <- 5000
-}
+trCntrl <- trainControl(
+  method = "repeatedcv",
+  number = 3,
+  repeats = 5,
+  classProbs = TRUE,
+  summaryFunction = twoClassSummary)
+tune_length <- 5
+n_keep <- 5000
 ```
 
 ## Prepare data
