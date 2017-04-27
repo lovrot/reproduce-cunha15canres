@@ -13,7 +13,7 @@ compile_res_tbl <- function(x, prefix = NULL, suffix = NULL) {
       breaks = c(-Inf, 0.001, 0.01, 0.05, 0.1, 1),
       labels = c("***", "**", "*", ".", " "))
     ) %>%
-    select(coef, HR, P)
+    dplyr::select(coef, HR, P)
 
   if (!is.null(prefix)) {
     res_tbl <- rename(res_tbl, c(
