@@ -303,12 +303,8 @@ stopifnot(validObject(qcsubstudy))
 sel_markers <- c("ACVRL1", "ACVRL1_endothelial_index")
 
 setdiff_tbl <- pData(qcsubstudy) %>%
-  ## Identify sets with one case and at least one control
-  group_by(rna_extract, setnr) %>%
-  mutate(
-    n_cases_in_set = sum(casecontcd == "case"),
-    n_controls_in_set = sum(casecontcd == "control")) %>%
-  filter(n_cases_in_set == 1 & n_controls_in_set >= 1) %>%
+  ## Keep sets with one case and at least one control
+  filter(complete_casecontset == TRUE) %>%
   ## Derive case-control set differences
   select(rna_extract, setnr, casecontcd, one_of(sel_markers)) %>%
   gather(marker, value, one_of(sel_markers)) %>%

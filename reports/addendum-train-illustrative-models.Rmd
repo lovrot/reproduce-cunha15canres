@@ -69,16 +69,6 @@ if (code_development) {
 
 ## Prepare data
 
-```{r}
-qcsubstudy_primary_endpoint_inclusion <- pData(qcsubstudy) %>%
-  ## Identify sets with one case and at least one control
-  group_by(rna_extract, setnr) %>%
-  mutate(
-    n_cases_in_set = sum(casecontcd == "case"),
-    n_controls_in_set = sum(casecontcd == "control")) %>%
-  filter(n_cases_in_set == 1 & n_controls_in_set >= 1)
-```
-
 # Initial steps
 
 ## Non-specific filtering of features
@@ -106,8 +96,8 @@ with the QC substudy part of the test set.
 
 ```{r}
 all_casecontsets <- unique(casecontstudy$setnr)
-casecontsets_not_in_qcsubstudy <- 
-  setdiff(all_casecontsets, qcsubstudy_primary_endpoint_inclusion$setnr)
+casecontsets_not_in_qcsubstudy <- setdiff(all_casecontsets, 
+  subset(pData(qcsubstudy), complete_casecontset)$setnr)
 
 set.seed(20101216)
 train_sets <- sample(casecontsets_not_in_qcsubstudy, 
@@ -128,7 +118,7 @@ tibble(
     levels = c(TRUE, FALSE), 
     labels = c("Training set", "Test set")), 
   in_qcsubstudy = factor(
-    casecontset %in% qcsubstudy_primary_endpoint_inclusion$setnr, 
+    casecontset %in% subset(pData(qcsubstudy), complete_casecontset)$setnr, 
     levels = c(TRUE, FALSE), 
     labels = c("QC substudy", "(rest)"))) %>%
   dplyr::select(in_qcsubstudy, partition) %>%
@@ -256,7 +246,7 @@ http://topepo.github.io/caret/model-training-and-tuning.html#between-models
 # Cache results
 
 ```{r}
-save(qcsubstudy_primary_endpoint_inclusion, testing, training, fit_list,
+save(testing, training, fit_list, 
   file = file.path("..", "cache", "caret", "training.RData"))
 ```
 
