@@ -154,11 +154,51 @@ Initialise container to store models.
 fit_list <- list()
 ```
 
+Construct grouped/stratified cross-validation folds respecting case-control sets.
+
+```{r, echo = FALSE}
+if(interactive()) {
+  test_folds <- groupKFold(
+    group = pData(casecontstudy)[rownames(training), "setnr"],
+    k = trCntrl$number)
+  
+  pData(casecontstudy)[rownames(training), c("setnr", "subjid")] %>%
+    mutate(Fold1 = subjid %in% rownames(training)[test_folds[["Fold1"]]]) %>%
+    dplyr::select(setnr, Fold1) %>%
+    table() %>%
+    head(n = 20)
+}
+```
+
+```{r}
+createMultiGroupKFold <- function(group, k = 10, times = 5) {
+  ## Adopted from caret::createMultiFolds
+  pretty_nums <- paste0("Rep", gsub(" ", "0", format(1:times)))
+  for (i in 1:times) {
+    tmp <- groupKFold(group, k = k)
+    names(tmp) <- paste0(
+      "Fold", gsub(" ", "0", format(seq(along = tmp))), 
+      ".", pretty_nums[i])
+    out <- if (i == 1) 
+      tmp
+    else 
+      c(out, tmp)
+  }
+  out
+}
+
+set.seed(20101216)
+my_folds <- createMultiGroupKFold(
+  group = pData(casecontstudy)[rownames(training), "setnr"],
+  k = trCntrl$number, 
+  times = trCntrl$repeats)
+
+trCntrl$index <- my_folds
+```
+
 ## Model: HER2 amplicon metagene
 
 ```{r HER2_amplicon_metagene}
-set.seed(20101216)
-
 fit_list[["HER2 amplicon metagene"]] <-
   train(casecontcd ~ HER2_amplicon_metagene,
     data = pData(eset)[rownames(training), c("casecontcd", "HER2_amplicon_metagene")],
@@ -172,8 +212,6 @@ print(fit_list[["HER2 amplicon metagene"]])
 ## Model: Linear Discriminant Analysis with Selection by Univarite Filter
 
 ```{r ldaSBF}
-set.seed(20101216)
-
 ldaSBF2 <- ldaSBF
 ldaSBF2$score <- function(x, y)
   t.test(x ~ y)$p.value
@@ -185,7 +223,8 @@ filterCtrl <- sbfControl(
   functions = ldaSBF2,
   method = trCntrl$method,
   number = trCntrl$number,
-  repeats = trCntrl$repeats)
+  repeats = trCntrl$repeats, 
+  index = trCntrl$index)
 
 fit_list[["Linear Discriminant Analysis with Selection by Univariate Filter"]] <-
   sbf(casecontcd ~ ., data = training, sbfControl = filterCtrl)
@@ -213,8 +252,6 @@ plot(fit_list[["Logistic Regression with Elastic Net Regularisation"]])
 ## Model: Random Forest with Selection by Univarite Filter
 
 ```{r rfSBF}
-set.seed(20101216)
-
 rfSBF2 <- rfSBF
 rfSBF2$score <- function(x, y)
   t.test(x ~ y)$p.value
@@ -228,7 +265,8 @@ fit_list[["Random Forest with Selection by Univariate Filter"]] <-
       functions = rfSBF2,
       method = trCntrl$method,
       number = trCntrl$number,
-      repeats = trCntrl$repeats))
+      repeats = trCntrl$repeats, 
+      index = trCntrl$index))
 
 print(fit_list[["Random Forest with Selection by Univariate Filter"]])
 ```
@@ -237,6 +275,7 @@ print(fit_list[["Random Forest with Selection by Univariate Filter"]])
 
 ```{r}
 resamps <- resamples(fit_list)
+parallelplot(resamps, metric = "ROC")
 dotplot(resamps, metric = "ROC")
 ```
 
