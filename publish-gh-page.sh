@@ -11,6 +11,7 @@ git checkout --orphan gh-pages  # create new
 git rm -rf .
 
 cp ~/git/reproduce-cunha15canres/reports/reproduce-cunha15canres.html ./index.html
+cp ~/git/reproduce-cunha15canres/reports/addendum-train-illustrative-models.html ./
 
 git add index.html
 git commit -m "Update gh-page"
