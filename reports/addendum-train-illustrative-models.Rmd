@@ -1,0 +1,295 @@
+---
+title: "Addendum: Train illustrative predictive models"
+author: "John Lövrot"
+license: "CC BY 4.0"
+date: "`r format(Sys.Date(), format = '%B %d, %Y')`"
+output:
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    fig_width: 10
+    fig_height: 5
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(fig.path = 'graphics/addendum-train-illustrative-models-',
+  echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+# Preparations
+
+## Load data analysis project
+
+Load project.
+
+```{r load_project}
+setwd("..")
+ProjectTemplate::reload.project()
+setwd("reports")
+```
+
+Load/attach additional packages.
+
+```{r}
+library(caret)
+library(glmnet)
+library(randomForest)
+```
+
+## Settings
+
+```{r}
+trellis.par.set(caretTheme())
+```
+
+```{r}
+code_development <- TRUE
+if (code_development) {
+  ## During code development only
+  trCntrl <- trainControl(
+    method = "repeatedcv",
+    number = 3,
+    repeats = 2,
+    classProbs = TRUE,
+    summaryFunction = twoClassSummary)
+  tune_length <- 3
+  n_keep <- 500
+} else {
+  trCntrl <- trainControl(
+    method = "repeatedcv",
+    number = 3,
+    repeats = 5,
+    classProbs = TRUE,
+    summaryFunction = twoClassSummary)
+  tune_length <- 5
+  n_keep <- 5000
+}
+```
+
+## Prepare data
+
+```{r}
+casecontstudy$casecontcd <- factor(casecontstudy$casecontstat,
+  levels = c(0, 1),
+  labels = c("control", "case"))
+```
+
+```{r derive_HER2_amplicon_metagene}
+sel_symbols <- c("ERBB2", "GRB7")
+
+eset <- casecontstudy[fData(casecontstudy)$symbol %in% sel_symbols, ] %>%
+  genefilter::featureFilter()
+featureNames(eset) <- as.character(fData(eset)$symbol)
+pData(eset) <- cbind(pData(eset), t(exprs(eset)))
+casecontstudy$HER2_amplicon_metagene <- colMeans(exprs(eset))
+
+eset <- qcsubstudy[fData(qcsubstudy)$symbol %in% sel_symbols, ] %>%
+  averageExprsByFDataVar("symbol")
+featureNames(eset) <- as.character(fData(eset)$symbol)
+qcsubstudy$HER2_amplicon_metagene <- colMeans(exprs(eset))
+```
+
+```{r}
+qcsubstudy_primary_endpoint_inclusion <- pData(qcsubstudy) %>%
+  ## Identify sets with one case and at least one control
+  group_by(rna_extract, setnr) %>%
+  mutate(
+    n_cases_in_set = sum(casecontcd == "case"),
+    n_controls_in_set = sum(casecontcd == "control")) %>%
+  filter(n_cases_in_set == 1 & n_controls_in_set >= 1)
+```
+
+# Initial steps
+
+## Non-specific filtering of features
+
+```{r}
+eset <- genefilter::featureFilter(casecontstudy)
+eset <- genefilter::varFilter(eset, var.cutoff = 1 - n_keep / nrow(eset))
+featureNames(eset) <- make.names(fData(eset)$probeid)
+```
+
+```{r}
+print(eset)
+```
+
+```{r}
+all_data <- cbind(
+  pData(eset)[, "casecontcd", drop = FALSE],
+  as.data.frame(t(exprs(eset))))
+```
+
+## Data splitting
+
+The full study is split into a training set (2/3) and a test set (1/3), 
+with the QC substudy part of the test set.
+
+```{r}
+all_casecontsets <- unique(casecontstudy$setnr)
+casecontsets_not_in_qcsubstudy <- 
+  setdiff(all_casecontsets, qcsubstudy_primary_endpoint_inclusion$setnr)
+
+set.seed(20101216)
+train_sets <- sample(casecontsets_not_in_qcsubstudy, 
+  size = length(all_casecontsets)*2/3)
+train_subjects <- subset(pData(casecontstudy), setnr %in% train_sets)$subjid
+train_idx <- which(rownames(all_data) %in% train_subjects)
+
+training  <- all_data[train_idx, ]
+testing  <- all_data[-train_idx, ]
+```
+
+```{r, echo = FALSE}
+casecontsets <- unique(casecontstudy$setnr)
+tibble(
+  casecontset = casecontsets, 
+  partition = factor(
+    casecontset %in% pData(casecontstudy)[rownames(training), "setnr"], 
+    levels = c(TRUE, FALSE), 
+    labels = c("Training set", "Test set")), 
+  in_qcsubstudy = factor(
+    casecontset %in% qcsubstudy_primary_endpoint_inclusion$setnr, 
+    levels = c(TRUE, FALSE), 
+    labels = c("QC substudy", "(rest)"))) %>%
+  dplyr::select(in_qcsubstudy, partition) %>%
+  table() %>%
+  addmargins() %>%
+  knitr::kable(caption = "Table. Number of case-control sets in each partition of the full study.")
+```
+
+# Investigated models
+
+Panel of models:
+
+* Linear Discriminant Analysis (LDA) with Selection by Univarite Filter
+    * as an example of a simple -- yet for gene-expression data often supprisingly powerful -- approach
+* Logistic Regression with Elastic Net Regularisation
+    * as an example of advanced method with implicit feature selection
+* Random Forest with Selection by Univarite Filter
+    * as an example of another advanced approach
+* (LDA based on the) HER2 amplicon metagene
+    * for comparison and as a positive control
+
+Compare with, for example, 
+http://topepo.github.io/caret/feature-selection-overview.html#feature-selection-methods
+
+# Train models
+
+See also
+http://topepo.github.io/caret/model-training-and-tuning.html
+
+Initialise container to store models.
+
+```{r}
+fit_list <- list()
+```
+
+## Model: HER2 amplicon metagene
+
+```{r HER2_amplicon_metagene}
+set.seed(20101216)
+
+fit_list[["HER2 amplicon metagene"]] <-
+  train(casecontcd ~ HER2_amplicon_metagene,
+    data = pData(eset)[rownames(training), c("casecontcd", "HER2_amplicon_metagene")],
+    method = "lda",
+    metric = "ROC",
+    trControl = trCntrl)
+
+print(fit_list[["HER2 amplicon metagene"]])
+```
+
+## Model: Linear Discriminant Analysis with Selection by Univarite Filter
+
+```{r ldaSBF}
+set.seed(20101216)
+
+ldaSBF2 <- ldaSBF
+ldaSBF2$score <- function(x, y)
+  t.test(x ~ y)$p.value
+ldaSBF2$filter <- function (score, x, y)
+  p.adjust(score, "bonferroni") < 0.05  # stringent criterion
+ldaSBF2$summary <- twoClassSummary
+
+filterCtrl <- sbfControl(
+  functions = ldaSBF2,
+  method = trCntrl$method,
+  number = trCntrl$number,
+  repeats = trCntrl$repeats)
+
+fit_list[["Linear Discriminant Analysis with Selection by Univariate Filter"]] <-
+  sbf(casecontcd ~ ., data = training, sbfControl = filterCtrl)
+
+print(fit_list[["Linear Discriminant Analysis with Selection by Univariate Filter"]])
+```
+
+## Model: Logistic Regression with Elastic Net Regularisation
+
+```{r glmnet}
+set.seed(20101216)
+
+fit_list[["Logistic Regression with Elastic Net Regularisation"]] <-
+  train(casecontcd ~ ., data = training,
+    method = "glmnet",
+    family = "binomial",
+    metric = "ROC",
+    trControl = trCntrl,
+    tuneLength = tune_length,
+    NULL)
+
+plot(fit_list[["Logistic Regression with Elastic Net Regularisation"]])
+```
+
+## Model: Random Forest with Selection by Univarite Filter
+
+```{r rfSBF}
+set.seed(20101216)
+
+rfSBF2 <- rfSBF
+rfSBF2$score <- function(x, y)
+  t.test(x ~ y)$p.value
+rfSBF2$filter <- function (score, x, y)
+  p.adjust(score, "BH") < 0.25  # less stringent criterion
+rfSBF2$summary <- twoClassSummary
+
+fit_list[["Random Forest with Selection by Univariate Filter"]] <-
+  sbf(casecontcd ~ ., data = training,
+    sbfControl = sbfControl(
+      functions = rfSBF2,
+      method = trCntrl$method,
+      number = trCntrl$number,
+      repeats = trCntrl$repeats))
+
+print(fit_list[["Random Forest with Selection by Univariate Filter"]])
+```
+
+# Compare models
+
+```{r}
+resamps <- resamples(fit_list)
+dotplot(resamps, metric = "ROC")
+```
+
+See also
+http://topepo.github.io/caret/model-training-and-tuning.html#between-models
+
+# Cache results
+
+```{r}
+save(qcsubstudy_primary_endpoint_inclusion, testing, training, fit_list,
+  file = file.path("..", "cache", "caret", "training.RData"))
+```
+
+# R session information
+
+```{r}
+print(sessionInfo(), locale = FALSE)
+```
+
+- - -
+
+&copy; 2017 John Lövrot.  
+This work is licensed under a [Creative Commons Attribution 4.0 International License](http://creativecommons.org/licenses/by/4.0/).  
+The source code is available at [github.com/lovrot/reproduce-cunha15canres](http://github.com/lovrot/reproduce-cunha15canres).  
+Version `r format(read.dcf("../description.dcf")[1, "version"])`

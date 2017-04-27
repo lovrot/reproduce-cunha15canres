@@ -1,0 +1,360 @@
+---
+title: "Addendum: Illustrative predictive models"
+author: "John Lövrot"
+license: "CC BY 4.0"
+date: "`r format(Sys.Date(), format = '%B %d, %Y')`"
+output:
+  html_document:
+    theme: cosmo
+    toc: true
+    toc_float: true
+    fig_width: 10
+    fig_height: 5
+---
+
+```{r setup, include = FALSE}
+knitr::opts_chunk$set(fig.path = 'graphics/addendum-illustrative-models-',
+  echo = FALSE, warning = FALSE, message = FALSE)
+```
+
+```{r load_project}
+setwd("..")
+ProjectTemplate::reload.project()
+setwd("reports")
+
+library(caret)
+library(glmnet)
+library(randomForest)
+library(pROC)
+```
+
+```{r}
+ggplot2::theme_set(theme_classic() +
+    theme(axis.line.x = element_blank()) + 
+    theme(axis.line.y = element_blank()))
+trellis.par.set(caretTheme())
+options(knitr.kable.NA = "")
+```
+
+```{r}
+pData(casecontstudy) <- pData(casecontstudy) %>%
+  as_tibble() %>%
+  mutate(
+    casecontcd = factor(casecontstat,
+      levels = c(0, 1),
+      labels = c("control", "case")), 
+    h2stat = factor(subtypecd %in% "H2", 
+      levels = c(FALSE, TRUE), labels = c("other", "H2"))
+  ) %>%
+  (function(x) data.frame(x, row.names = x$subjid))
+
+stopifnot(validObject(casecontstudy))
+```
+
+```{r derive_HER2_amplicon_metagene}
+sel_symbols <- c("ERBB2", "GRB7")
+
+eset <- casecontstudy[fData(casecontstudy)$symbol %in% sel_symbols, ] %>%
+  genefilter::featureFilter()
+featureNames(eset) <- as.character(fData(eset)$symbol)
+pData(eset) <- cbind(pData(eset), t(exprs(eset)))
+casecontstudy$HER2_amplicon_metagene <- colMeans(exprs(eset))
+
+eset <- qcsubstudy[fData(qcsubstudy)$symbol %in% sel_symbols, ] %>%
+  averageExprsByFDataVar("symbol")
+featureNames(eset) <- as.character(fData(eset)$symbol)
+qcsubstudy$HER2_amplicon_metagene <- colMeans(exprs(eset))
+```
+
+```{r}
+load(file.path("..", "cache", "caret", "training.RData"))
+```
+
+# Illustrative predictive models
+
+## Model training
+
+The full study is split into a training set (2/3) and a test set (1/3), 
+with the QC substudy as part of the test set.
+
+```{r}
+casecontsets <- unique(casecontstudy$setnr)
+tibble(
+  casecontset = casecontsets, 
+  partition = factor(
+    casecontset %in% pData(casecontstudy)[rownames(training), "setnr"], 
+    levels = c(TRUE, FALSE), 
+    labels = c("Training set", "Test set")), 
+  in_qcsubstudy = factor(
+    casecontset %in% qcsubstudy_primary_endpoint_inclusion$setnr, 
+    levels = c(TRUE, FALSE), 
+    labels = c("QC substudy", "(rest)"))) %>%
+  dplyr::select(in_qcsubstudy, partition) %>%
+  table() %>%
+  addmargins() %>%
+  knitr::kable(caption = "Table. Number of case-control sets in each partition of the full study.")
+```
+
+A panel of models are trained and tuned based on the training set using repeated cross-validation, a resampling technique.
+For details, see [reproduce-cunha15canres/addendum-train-illustrative-models.html](./addendum-train-illustrative-models.html)
+
+## Performance in training and test sets
+
+```{r}
+resamps <- resamples(fit_list)
+```
+
+```{r}
+## Select model based on comparison of performance in training set
+if (interactive()) 
+  dotplot(resamps, metric = "ROC")
+
+selected_modelnam <- "Logistic Regression with Elastic Net Regularisation"
+fit <- fit_list[[selected_modelnam]]
+```
+
+Selected model: 
+```{r, results = "asis"}
+cat(selected_modelnam)
+```
+
+```{r}
+resamps_tbl <- resamps %>%
+  as.data.frame() %>%
+  tidyr::gather(varnam, value, -Resample) %>%
+  tidyr::separate(Resample, c("fold", "rep"))
+
+## Find ordering of models
+tmp <- resamps_tbl %>% 
+  group_by(varnam) %>%
+  summarise(mean = mean(value)) %>%
+  arrange(desc(mean))
+resamps_tbl$varnam <- factor(resamps_tbl$varnam, levels = rev(tmp$varnam))
+
+gg_training <- resamps_tbl %>%
+  ggplot(aes(x = varnam, y = value)) +
+  geom_hline(yintercept = 0.5, colour = "darkgrey") +
+  geom_boxplot(outlier.shape = 1) +  # c.f. bwplot(resamps, metric = "ROC")
+  # stat_summary(fun.data = "mean_cl_normal") +  # c.f. dotplot(resamps, metric = "ROC")
+  labs(
+    x = "",
+    y = "Area under the ROC curve\n(repeated cross-validation resamples)", 
+    title = "Training set") +
+  coord_flip(ylim = c(0.25, 1))
+```
+
+```{r}
+predict_twoclass <- function(object, newdata = NULL) {
+  if (class(object) == "train") {
+    cbind(
+      data.frame(pred = predict(object, newdata, type = "raw")), 
+      predict(object, newdata, type = "prob"))
+  } else if (class(object) == "sbf") {
+    predict(fit, newdata)
+  }
+}
+```
+
+```{r}
+pred_df <- predict_twoclass(fit, testing)
+
+testing_df <- pData(casecontstudy)[rownames(testing), ]
+testing_df$model_pred_class_ <- pred_df$pred
+testing_df$model_pred_prob <- pred_df$case
+testing_df$model_pred_score <- gtools::logit(testing_df$model_pred_prob)
+```
+
+```{r}
+require(pROC)
+roc_HER2_amplicon_metagene <- roc(casecontcd ~ HER2_amplicon_metagene,
+  data = testing_df, levels = c("control", "case"))
+roc_model_pred <- roc(casecontcd ~ model_pred_prob,
+  data = testing_df, levels = c("control", "case"))
+```
+
+```{r}
+gg_test <- tibble(
+  varnam = c("HER2 amplicon metagene", selected_modelnam), 
+  value = c(
+    as.numeric(roc_HER2_amplicon_metagene$auc), 
+    as.numeric(roc_model_pred$auc))
+  ) %>%
+  ggplot(aes(x = varnam, y = value)) +
+  geom_hline(yintercept = 0.5, colour = "darkgrey") +
+  geom_point() +
+  labs(x = "", y = "Area under the ROC curve", 
+    title = "Test set") +
+  coord_flip(ylim = c(0.25, 1))
+```
+
+```{r, fig.width = 8, fig.height = 6, fig.cap = "Figure. Performance in the training and test tests as assessed by area under the ROC curve."}
+cowplot::plot_grid(gg_training, gg_test, 
+  ncol = 1, rel_heights = c(2, 1), align = "v")
+```
+
+```{r, fig.width = 12, fig.height = 6, fig.cap = "Figure. ROC curves for the test set."}
+layout(matrix(1:2, nrow = 1, byrow = TRUE))
+
+par(bty = "n")
+tmp <- plot(roc_HER2_amplicon_metagene, legacy.axes = TRUE,
+  col = colNEJM["blue"], lty = "solid", lwd = 1, 
+  main = "Test set")
+tmp <- plot(roc_model_pred, legacy.axes = TRUE,
+  col = colNEJM["red"], lty = "solid", lwd = 1, add = TRUE)
+legend("bottomright",
+  legend = c(selected_modelnam, "HER2 amplicon metagene"),
+  col = colNEJM[c("red", "blue")],
+  lty = c("solid", "solid"),
+  lwd = 1, bty = "n")
+```
+
+```{r}
+uni_models <- list()  # initalise
+
+uni_models[["model_pred_class_"]] <- clogit(
+  casecontstat ~ model_pred_class_ + strata(setnr),
+  data = testing_df)
+
+uni_models[["h2stat"]] <- clogit(
+  casecontstat ~ h2stat + strata(setnr),
+  data = testing_df)
+
+uni_models[["trtgrp:scale(PAM50PROLIF)"]] <- clogit(
+  casecontstat ~ trtgrp:scale(PAM50PROLIF) + strata(setnr),
+  data = testing_df)
+```
+
+```{r}
+model_multi <- clogit(
+  casecontstat ~ model_pred_class_ + 
+    h2stat + trtgrp:scale(PAM50PROLIF) + strata(setnr),
+  data = testing_df)
+
+uni_models %>%
+  purrr::map(compile_res_tbl, suffix = "univariate models") %>%
+  purrr::reduce(rbind) %>%
+  full_join(compile_res_tbl(model_multi, suffix = "multivariable model"), by = "coef") %>%
+  knitr::kable(
+    row.names = FALSE, digits = 2, 
+    caption = paste("Table.",
+      "Illustrative statistical inference of the test set.", 
+      "HR: hazard ratio; ET, endocrine therapy; CT, chemotherapy; PAM50PROLIF: PAM50 proliferation index.",
+      "Statistical significance codes:  0 '\\*\\*\\*' 0.001 '\\*\\*' 0.01 '\\*' 0.05 '.' 0.1 '\\  ' 1."))
+```
+
+## Performance in QC substudy
+
+```{r}
+esetqc <- qcsubstudy[
+  fData(casecontstudy)$probeid, 
+  qcsubstudy_primary_endpoint_inclusion$geo_accession]
+
+featureNames(esetqc) <- make.names(fData(esetqc)$probeid)
+stopifnot(validObject(esetqc))
+
+qcsubstudy_df <- cbind(
+  pData(esetqc)[, "casecontcd", drop = FALSE],
+  as.data.frame(t(exprs(esetqc))))
+
+pred_df <- predict_twoclass(fit, qcsubstudy_df)
+
+esetqc$model_pred_class_ <- pred_df$pred
+esetqc$model_pred_prob <- pred_df$case
+esetqc$model_pred_score <- gtools::logit(esetqc$model_pred_prob)
+```
+
+```{r, fig.width = 12, fig.height = 6, fig.cap = "Figure. ROC curves for the QC substudy."}
+require(pROC)
+
+layout(matrix(1:2, nrow = 1, byrow = TRUE))
+par(bty = "n")
+
+## Original RNA
+roc_HER2_amplicon_metagene <- roc(casecontcd ~ HER2_amplicon_metagene,
+  data = subset(pData(esetqc), rna_extract == "original"), 
+  levels = c("control", "case"))
+roc_model_pred <- roc(casecontcd ~ model_pred_score,
+  data = subset(pData(esetqc), rna_extract == "original"), 
+  levels = c("control", "case"))
+
+tmp <- plot(roc_HER2_amplicon_metagene, legacy.axes = TRUE,
+  col = colNEJM["blue"], lty = "solid", lwd = 1, 
+  main = "Original RNA")
+tmp <- plot(roc_model_pred, legacy.axes = TRUE,
+  col = colNEJM["red"], lty = "solid", lwd = 1, add = TRUE)
+legend("bottomright",
+  legend = c(selected_modelnam, "HER2 amplicon metagene"),
+  col = colNEJM[c("red", "blue")],
+  lty = c("solid", "solid"),
+  lwd = 1, bty = "n")
+
+## Reextracted RNA
+roc_HER2_amplicon_metagene <- roc(casecontcd ~ HER2_amplicon_metagene,
+  data = subset(pData(esetqc), rna_extract == "reextract"), 
+  levels = c("control", "case"))
+roc_model_pred <- roc(casecontcd ~ model_pred_score,
+  data = subset(pData(esetqc), rna_extract == "reextract"), 
+  levels = c("control", "case"))
+
+tmp <- plot(roc_HER2_amplicon_metagene, legacy.axes = TRUE,
+  col = colNEJM["blue"], lty = "solid", lwd = 1, 
+  main = "Reextracted RNA")
+tmp <- plot(roc_model_pred, legacy.axes = TRUE,
+  col = colNEJM["red"], lty = "solid", lwd = 1, add = TRUE)
+legend("bottomright",
+  legend = c(selected_modelnam, "HER2 amplicon metagene"),
+  col = colNEJM[c("red", "blue")],
+  lty = c("solid", "solid"),
+  lwd = 1, bty = "n")
+```
+
+```{r derive_setdiffs}
+sel_markers <- c(
+  "model_pred_score" = selected_modelnam, 
+  "HER2_amplicon_metagene" = "HER2 amplicon metagene")
+
+setdiff_tbl <- pData(esetqc) %>%
+  ## Identify sets with one case and at least one control
+  group_by(rna_extract, setnr) %>%
+  mutate(
+    n_cases_in_set = sum(casecontcd == "case"),
+    n_controls_in_set = sum(casecontcd == "control")) %>%
+  dplyr::filter(n_cases_in_set == 1 & n_controls_in_set >= 1) %>%
+  ## Derive case-control set differences
+  dplyr::select(rna_extract, setnr, casecontcd, one_of(names(sel_markers))) %>%
+  gather(markercd, value, one_of(names(sel_markers))) %>%
+  mutate(
+    markercd = factor(markercd, 
+      levels = names(sel_markers)),
+    marker = factor(sel_markers[as.character(markercd)], 
+      levels = sel_markers)
+    ) %>%
+  group_by(rna_extract, setnr, markercd, marker, casecontcd) %>%
+  summarise(value = mean(value)) %>%
+  spread(casecontcd, value) %>%
+  mutate(setdiff = case - control)  %>%
+  dplyr::select(markercd, marker, setnr, rna_extract, setdiff)
+```
+
+```{r, fig.cap = "Figure. Case-control set differences."}
+lim0 <- c(-1, 1) * max(abs(setdiff_tbl$setdiff))
+
+colmarkercd <- colNEJM[c("red", "blue")]
+names(colmarkercd) <- c("model_pred_score", "HER2_amplicon_metagene")
+
+gg <- setdiff_tbl %>%
+  spread(rna_extract, setdiff) %>%
+  ggplot(aes(x = original, y = reextract, col = markercd)) +
+  geom_vline(xintercept = 0, col = "darkgrey", linetype = "solid") +
+  geom_hline(yintercept = 0, col = "darkgrey", linetype = "solid") +
+  geom_abline(intercept = 0, slope = 1, col = "darkgrey", linetype = "dashed") +
+  geom_point() +
+  facet_wrap(~ marker) +
+  coord_fixed() +
+  scale_colour_manual(values = colmarkercd, guide = FALSE) +
+  lims(x = lim0, y = lim0) +
+  labs(
+    x = "Case-control set difference\nOriginal RNA",
+    y = "Case-control set difference\nReextracted RNA")
+plot(gg)
+```
