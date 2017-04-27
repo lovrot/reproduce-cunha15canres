@@ -235,8 +235,6 @@ print(fit_list[["Linear Discriminant Analysis with Selection by Univariate Filte
 ## Model: Logistic Regression with Elastic Net Regularisation
 
 ```{r glmnet}
-set.seed(20101216)
-
 fit_list[["Logistic Regression with Elastic Net Regularisation"]] <-
   train(casecontcd ~ ., data = training,
     method = "glmnet",
