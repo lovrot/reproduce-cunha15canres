@@ -29,7 +29,7 @@ ProjectTemplate::reload.project()
 setwd("reports")
 ```
 
-Load/attach additional packages.
+Load additional packages.
 
 ```{r}
 library(caret)
