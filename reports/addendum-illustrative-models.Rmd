@@ -142,11 +142,11 @@ gg_training <- resamps_tbl %>%
 
 ```{r}
 predict_twoclass <- function(object, newdata = NULL) {
-  if (class(object) == "train") {
+  if (is(object, "train")) {
     cbind(
       data.frame(pred = predict(object, newdata, type = "raw")), 
       predict(object, newdata, type = "prob"))
-  } else if (class(object) == "sbf") {
+  } else if (is(object, "sbf")) {
     predict(fit, newdata)
   }
 }
