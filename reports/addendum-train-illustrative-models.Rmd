@@ -69,12 +69,6 @@ if (code_development) {
 
 ## Prepare data
 
-```{r}
-casecontstudy$casecontcd <- factor(casecontstudy$casecontstat,
-  levels = c(0, 1),
-  labels = c("control", "case"))
-```
-
 ```{r derive_HER2_amplicon_metagene}
 sel_symbols <- c("ERBB2", "GRB7")
 

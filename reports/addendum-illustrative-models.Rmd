@@ -40,9 +40,6 @@ options(knitr.kable.NA = "")
 pData(casecontstudy) <- pData(casecontstudy) %>%
   as_tibble() %>%
   mutate(
-    casecontcd = factor(casecontstat,
-      levels = c(0, 1),
-      labels = c("control", "case")), 
     h2stat = factor(subtypecd %in% "H2", 
       levels = c(FALSE, TRUE), labels = c("other", "H2"))
   ) %>%

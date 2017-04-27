@@ -5,7 +5,7 @@ tmpdf <- tibble(geo_accession = colnames(qcsubstudy_exprs)) %>%
       pData(gse81954)[, c("geo_accession", "tumorid", "piece")]),
     by = "geo_accession") %>%
   left_join(
-    pData(gse81954)[, c("tumorid", "setnr", "casecontstat")],
+    pData(gse81954)[, c("tumorid", "setnr", "casecontstat", "casecontcd")],
     by = "tumorid") %>%
   data.frame()
 rownames(tmpdf) <- tmpdf$geo_accession
@@ -18,9 +18,7 @@ pData(qcsubstudy) <- pData(qcsubstudy) %>%
   as_tibble() %>%
   mutate(
     rna_extract = factor(piece, levels = c(1, 2),
-      labels = c("original", "reextract")),
-    casecontcd = factor(casecontstat, levels = c(0, 1),
-      labels = c("control", "case"))
+      labels = c("original", "reextract"))
   ) %>%
   (function(x) data.frame(x, row.names = x$geo_accession))
 
