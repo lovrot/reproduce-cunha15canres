@@ -12,6 +12,9 @@ casecontstudy_design <-
     setnr = unlist(setnr),
     casecontstat = unlist(casecontstat)) %>%
   mutate(
+    casecontcd = factor(casecontstat,
+      levels = c(0, 1),
+      labels = c("control", "case")),
     subjid = paste(tumorid, setnr, casecontstat, sep = "_"),
     trtgrp = factor(round(setnr / 1000) * 1000,
       levels = c(1000, 3000, 2000), labels = c("ET", "CT+ET", "CT"))

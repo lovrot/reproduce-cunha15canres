@@ -4,13 +4,6 @@ ggplot2::theme_set(theme_classic() +
     theme(axis.line.x = element_blank()) +
     theme(axis.line.y = element_blank()))
 
-sel_symbols <- c("ERBB2", "GRB7")
-eset <- casecontstudy[fData(casecontstudy)$symbol %in% sel_symbols, ] %>%
-  genefilter::featureFilter()
-featureNames(eset) <- as.character(fData(eset)$symbol)
-pData(eset) <- cbind(pData(eset), t(exprs(eset)))
-eset$HER2_amplicon_metagene <- colMeans(exprs(eset))
-
 library(mixtools)
 fit <- normalmixEM(eset$HER2_amplicon_metagene, mu = c(6, 12))
 
