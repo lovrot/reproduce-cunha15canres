@@ -14,6 +14,7 @@ cp ~/git/reproduce-cunha15canres/reports/reproduce-cunha15canres.html ./index.ht
 cp ~/git/reproduce-cunha15canres/reports/addendum-train-illustrative-models.html ./
 
 git add index.html
+git add addendum-train-illustrative-models.html
 git commit -m "Update gh-page"
 git push origin gh-pages
 
