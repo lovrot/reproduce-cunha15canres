@@ -85,7 +85,7 @@ stopifnot(validObject(casecontstudy))
 ## Derive excess distant metastases (martingale residuals in an empty model)
 ## Same as clogit, but not method="exact"; now defaults to "efron"
 model <- coxph(
-  Surv(rep(1, 768L), casecontstat) ~ 0 + strata(setnr),
+  Surv(rep(1, ncol(casecontstudy)), casecontstat) ~ 0 + strata(setnr),
   data =  pData(casecontstudy))
 casecontstudy$excessdm <- residuals(model, method = "martingale")
 ```
