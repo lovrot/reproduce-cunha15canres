@@ -94,6 +94,42 @@ tmp_tbl %>%
 ## Identify clusters of casecontsets that share (at least one) individual
 ## tumour(s), but not with other clusters
 
-casecontset_list <- split(casecontstudy_design$tumorid, casecontstudy_design$setnr)
+casecontsets <- split(casecontstudy_design$tumorid, casecontstudy_design$setnr)
 
 ## http://stackoverflow.com/questions/25130462/get-disjoint-sets-from-a-list-in-r
+library(igraph)
+igraph_method <- function(lst) {
+  edg <- do.call("rbind", lapply(lst, function(x) {
+    if (length(x) > 1) t(combn(x, 2)) else NULL
+  }))
+  g <- graph.data.frame(edg)
+  split(V(g)$name, clusters(g)$membership)
+}
+disjoint_sets <- igraph_method(casecontsets)
+
+disjoint_sets_of_casecontsets <- list()  # initialise
+for (i in seq(along = disjoint_sets)) {
+    y <- lapply(casecontsets, function(x) any(is.element(x, disjoint_sets[[i]])))
+    set_of_casecontsets <- as.integer(names(y)[unlist(y)])
+    disjoint_sets_of_casecontsets[[i]] <- set_of_casecontsets
+}
+names(disjoint_sets_of_casecontsets) <-
+  lapply(disjoint_sets_of_casecontsets, paste, collapse = "_")
+
+## Revised data partition
+all_sets_of_casecontsets <- names(disjoint_sets_of_casecontsets)
+
+y <- lapply(disjoint_sets_of_casecontsets,
+    function(x) !any(is.element(x,
+      subset(pData(qcsubstudy), complete_casecontset)$setnr)))
+sets_of_casecontsets_not_in_qcsubstudy <- names(y)[unlist(y)]
+
+n_all <- unlist(lapply(disjoint_sets_of_casecontsets, length))
+n <- n_all[sets_of_casecontsets_not_in_qcsubstudy]
+
+set.seed(20101216)
+n_randomly_reordered <- n[sample.int(n = length(n))]
+x <- cumsum(n_randomly_reordered)
+
+all_casecontsets <- unique(casecontstudy$setnr)
+x[x <= length(all_casecontsets)*2/3]
