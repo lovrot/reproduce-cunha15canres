@@ -116,6 +116,51 @@ tibble(
   knitr::kable(caption = "Table. Number of case-control sets in each partition of the full study.")
 ```
 
+```{r}
+## Additional exclusions of study subjects from training and test sets
+tmp_tbl <- pData(casecontstudy) %>%
+  mutate(
+    partition = factor(
+      subjid %in% rownames(training),
+      levels = c(TRUE, FALSE),
+      labels = c("Training set", "Test set"))
+  ) %>%
+  dplyr::select(tumorid, partition) %>%
+  table() %>%
+  addmargins(margin = 2) %>%
+  as.data.frame.matrix() %>%
+  rownames_to_column(var = "tumorid") %>%
+  as_tibble()
+names(tmp_tbl) <- gsub(" ", "_", names(tmp_tbl), fixed = TRUE)
+
+tmp_tbl2 <- tmp_tbl  %>%
+  filter(Sum > 1) %>%
+  arrange(desc(Sum))
+
+tmp_tbl2$in_qcsubstudy <-
+  tmp_tbl2$tumorid %in%
+  subset(pData(qcsubstudy), complete_casecontset)$tumorid
+tmp_tbl2$is_case_in_training_set <-
+  tmp_tbl2$tumorid %in%
+  subset(pData(casecontstudy), casecontstat == 1 & subjid %in% rownames(training))$tumorid
+tmp_tbl2$is_case_in_test_set <-
+  tmp_tbl2$tumorid %in%
+  subset(pData(casecontstudy), casecontstat == 1 & subjid %in% rownames(testing))$tumorid
+
+tmp_tbl3 <- tmp_tbl2 %>%
+  mutate(
+    keep_in_test_set = !is_case_in_test_set &
+      (in_qcsubstudy | is_case_in_test_set | (Test_set >= Training_set))
+  )
+
+training <- training[
+  !(pData(casecontstudy)[rownames(training), "tumorid"] %in%
+      filter(tmp_tbl3, keep_in_test_set)$tumorid), ]
+testing <- testing[
+  !(pData(casecontstudy)[rownames(testing), "tumorid"] %in%
+      filter(tmp_tbl3, !keep_in_test_set)$tumorid), ]
+```
+
 # Investigated models
 
 Panel of models:
