@@ -125,7 +125,7 @@ tmp_tbl <- pData(casecontstudy) %>%
       levels = c(TRUE, FALSE),
       labels = c("Training set", "Test set"))
   ) %>%
-  select(tumorid, partition) %>%
+  dplyr::select(tumorid, partition) %>%
   table() %>%
   addmargins(margin = 2) %>%
   as.data.frame.matrix() %>%
