@@ -369,15 +369,17 @@ casecontsets <- unique(casecontstudy$setnr)
 tibble(
   casecontset = casecontsets, 
   partition = factor(
-    casecontset %in% pData(casecontstudy)[rownames(training), "setnr"], 
-    levels = c(TRUE, FALSE), 
-    labels = c("Training set", "Test set")), 
+    ifelse(casecontset %in% pData(casecontstudy)[rownames(training), "setnr"], 
+      "Training set",
+      ifelse(casecontset %in% pData(casecontstudy)[rownames(testing), "setnr"], 
+        "Test set", NA)),
+    levels = c("Training set", "Test set")), 
   in_qcsubstudy = factor(
     casecontset %in% subset(pData(qcsubstudy), complete_casecontset)$setnr, 
     levels = c(TRUE, FALSE), 
     labels = c("QC substudy", "(rest)"))) %>%
   dplyr::select(in_qcsubstudy, partition) %>%
-  table() %>%
+  table(useNA = "ifany") %>%
   addmargins() %>%
   knitr::kable(caption = "Table. Number of case-control sets in each partition of the full study.")
 ```
