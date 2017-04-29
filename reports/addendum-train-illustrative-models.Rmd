@@ -387,7 +387,7 @@ print(fit_list[["Random Forest with Selection by Univariate Filter"]])
 
 Again, 
 the performance as estimated by this cross-validation approach is most likely slightly over-optimistic. 
-The reason is that the cross-validation folds not necessary are disjoint at individual tumour level.
+The reason is that the cross-validation folds not necessarily are disjoint at individual tumour level.
 
 ```{r}
 resamps <- resamples(fit_list)
