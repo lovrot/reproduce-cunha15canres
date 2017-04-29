@@ -264,7 +264,11 @@ Initialise container to store models.
 fit_list <- list()
 ```
 
-Construct grouped/stratified cross-validation folds respecting case-control sets.
+Construct stratified cross-validation folds of study subjects that 
+are disjoint with respect to case-control sets. 
+However, the folds are not necessary disjoint at individual tumour level. 
+Therefore, the performance as estimated by this cross-validation approach is 
+most likely slightly over-optimistic.
 
 ```{r, echo = FALSE}
 if(interactive()) {
@@ -380,6 +384,10 @@ print(fit_list[["Random Forest with Selection by Univariate Filter"]])
 ```
 
 # Compare models
+
+Again, 
+the performance as estimated by this cross-validation approach is most likely slightly over-optimistic. 
+The reason is that the cross-validation folds not necessary are disjoint at individual tumour level.
 
 ```{r}
 resamps <- resamples(fit_list)
