@@ -83,19 +83,123 @@ all_data <- cbind(
 The full study is split into a training set (2/3) and a test set (1/3), 
 with the QC substudy part of the test set.
 
+Step 1: 
+Create initial partition of study subjects into training and test sets 
+that are disjoint with respect to case-control sets, 
+but not necessary at individual tumour level.
+
 ```{r}
 all_casecontsets <- unique(casecontstudy$setnr)
 casecontsets_not_in_qcsubstudy <- setdiff(all_casecontsets, 
   subset(pData(qcsubstudy), complete_casecontset)$setnr)
 
 set.seed(20101216)
-train_sets <- sample(casecontsets_not_in_qcsubstudy, 
+init_training_casecontsets <- sample(casecontsets_not_in_qcsubstudy, 
   size = length(all_casecontsets)*2/3)
-train_subjects <- subset(pData(casecontstudy), setnr %in% train_sets)$subjid
-train_idx <- which(rownames(all_data) %in% train_subjects)
 
-training  <- all_data[train_idx, ]
-testing  <- all_data[-train_idx, ]
+init_training_subjids <- pData(casecontstudy) %>%
+  filter(setnr %in% init_training_casecontsets) %>%
+  dplyr::select(subjid) %>%
+  unlist()
+init_test_subjids <- setdiff(casecontstudy$subjid, init_training_subjids)
+```
+
+```{r}
+tumorids_qcsubstudy <- filter(pData(qcsubstudy), 
+  complete_casecontset)$tumorid
+tumorids_cases_init_training <- filter(pData(casecontstudy), 
+  casecontcd == "case" & subjid %in% init_training_subjids)$tumorid
+tumorids_cases_init_test <- filter(pData(casecontstudy), 
+  casecontcd == "case" & subjid %in% init_test_subjids)$tumorid
+```
+
+Step 2: 
+Exclude some study subjects corresponding to same indivudal tumour such that 
+the training and test sets also become disjoint at individual tumour level.
+
+```{r}
+## Identify tumours that correspond to study subjects in both training and test sets
+tumorids_to_be_handled_tbl <- casecontstudy_design %>%
+  mutate(
+    init_partition = factor(
+      subjid %in% init_training_subjids,
+      levels = c(TRUE, FALSE),
+      labels = c("init_training", "init_test"))
+  ) %>%
+  dplyr::select(tumorid, init_partition) %>%
+  table() %>% 
+  as.data.frame.matrix() %>%
+  rownames_to_column(var = "tumorid") %>%
+  as_tibble() %>%
+  dplyr::rename(
+    n_subj_init_training = init_training,
+    n_subj_init_test = init_test
+  ) %>%
+  rowwise() %>%
+  mutate(
+    in_qcsubstudy = is.element(tumorid, tumorids_qcsubstudy),
+    case_in_init_training = is.element(tumorid, tumorids_cases_init_training),
+    case_in_init_test = is.element(tumorid, tumorids_cases_init_test)
+  ) %>%
+  filter(n_subj_init_training > 0 & n_subj_init_test > 0)
+```
+
+```{r}
+## Decide
+tumorids_to_be_handled_tbl <- tumorids_to_be_handled_tbl %>%
+  mutate(
+    excl_subj_from_training = !case_in_init_training &
+      (in_qcsubstudy | case_in_init_test | (n_subj_init_training <= n_subj_init_test)),
+    excl_subj_from_test = !excl_subj_from_training
+  )
+```
+
+```{r, echo = FALSE}
+if (interactive()) {
+  nrow(tumorids_to_be_handled_tbl)
+  tumorids_to_be_handled_tbl %>%
+    summary()
+  tumorids_to_be_handled_tbl %>%
+    arrange(desc(n_subj_init_training + n_subj_init_test)) %>%
+    head() %>%
+    knitr::kable()
+}
+```
+
+```{r}
+## Assemble final training set
+tumorids_to_be_exl_from_training <- tumorids_to_be_handled_tbl %>%
+  filter(excl_subj_from_training) %>%
+  dplyr::select(tumorid) %>%
+  unlist()
+
+subjids_to_be_excl_from_training <- casecontstudy_design %>%
+  filter(tumorid %in% tumorids_to_be_exl_from_training) %>%
+  dplyr::select(subjid) %>%
+  unlist()
+
+training_subjids <- 
+  setdiff(init_training_subjids, subjids_to_be_excl_from_training)
+
+training <- all_data[training_subjids, ]
+```
+
+```{r}
+## Assemble final test set
+tumorids_to_be_exl_from_test <- tumorids_to_be_handled_tbl %>%
+  filter(excl_subj_from_test) %>%
+  dplyr::select(tumorid) %>%
+  unlist()
+
+subjids_to_be_excl_from_test <- casecontstudy_design %>%
+  filter(tumorid %in% tumorids_to_be_exl_from_test) %>%
+  dplyr::select(subjid) %>%
+  unlist()
+
+test_subjids <- 
+  setdiff(init_test_subjids, subjids_to_be_excl_from_test)
+
+testing <- all_data[test_subjids, ]
 ```
 
 ```{r, echo = FALSE}
@@ -103,62 +207,34 @@ casecontsets <- unique(casecontstudy$setnr)
 tibble(
   casecontset = casecontsets, 
   partition = factor(
-    casecontset %in% pData(casecontstudy)[rownames(training), "setnr"], 
-    levels = c(TRUE, FALSE), 
-    labels = c("Training set", "Test set")), 
+    ifelse(casecontset %in% pData(casecontstudy)[rownames(training), "setnr"], 
+      "Training set",
+      ifelse(casecontset %in% pData(casecontstudy)[rownames(testing), "setnr"], 
+        "Test set", NA)),
+    levels = c("Training set", "Test set")), 
   in_qcsubstudy = factor(
     casecontset %in% subset(pData(qcsubstudy), complete_casecontset)$setnr, 
     levels = c(TRUE, FALSE), 
     labels = c("QC substudy", "(rest)"))) %>%
   dplyr::select(in_qcsubstudy, partition) %>%
-  table() %>%
+  table(useNA = "ifany") %>%
   addmargins() %>%
   knitr::kable(caption = "Table. Number of case-control sets in each partition of the full study.")
 ```
 
-```{r}
-## Additional exclusions of study subjects from training and test sets
-tmp_tbl <- pData(casecontstudy) %>%
-  mutate(
-    partition = factor(
-      subjid %in% rownames(training),
-      levels = c(TRUE, FALSE),
-      labels = c("Training set", "Test set"))
-  ) %>%
-  dplyr::select(tumorid, partition) %>%
-  table() %>%
-  addmargins(margin = 2) %>%
-  as.data.frame.matrix() %>%
-  rownames_to_column(var = "tumorid") %>%
-  as_tibble()
-names(tmp_tbl) <- gsub(" ", "_", names(tmp_tbl), fixed = TRUE)
+Indidivudal tumours: 
 
-tmp_tbl2 <- tmp_tbl  %>%
-  filter(Sum > 1) %>%
-  arrange(desc(Sum))
-
-tmp_tbl2$in_qcsubstudy <-
-  tmp_tbl2$tumorid %in%
-  subset(pData(qcsubstudy), complete_casecontset)$tumorid
-tmp_tbl2$is_case_in_training_set <-
-  tmp_tbl2$tumorid %in%
-  subset(pData(casecontstudy), casecontstat == 1 & subjid %in% rownames(training))$tumorid
-tmp_tbl2$is_case_in_test_set <-
-  tmp_tbl2$tumorid %in%
-  subset(pData(casecontstudy), casecontstat == 1 & subjid %in% rownames(testing))$tumorid
-
-tmp_tbl3 <- tmp_tbl2 %>%
-  mutate(
-    keep_in_test_set = !is_case_in_test_set &
-      (in_qcsubstudy | is_case_in_test_set | (Test_set >= Training_set))
-  )
-
-training <- training[
-  !(pData(casecontstudy)[rownames(training), "tumorid"] %in%
-      filter(tmp_tbl3, keep_in_test_set)$tumorid), ]
-testing <- testing[
-  !(pData(casecontstudy)[rownames(testing), "tumorid"] %in%
-      filter(tmp_tbl3, !keep_in_test_set)$tumorid), ]
+```{r, echo = FALSE}
+tumorids <- unique(casecontstudy$tumorid)
+tibble(
+  tumorid = tumorids, 
+  tumour_in_training_set = tumorid %in% 
+    pData(casecontstudy)[rownames(training), "tumorid"],
+  tumour_in_test_set = tumorid %in% 
+    pData(casecontstudy)[rownames(testing), "tumorid"]) %>%
+  dplyr::select(tumour_in_training_set, tumour_in_test_set) %>%
+  table(useNA = "ifany") %>%
+  addmargins()
 ```
 
 # Investigated models
