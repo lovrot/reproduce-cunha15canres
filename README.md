@@ -1,5 +1,5 @@
-R/Bioconductor code to reproduce the hypothesis-generating data analyses in Ma17JNCI
-====================================================================================
+R/Bioconductor code to reproduce biostatistical analyses in Cunha15CanRes
+=========================================================================
 
 The aim of this R code bundle is to reproduce the statistical analyses of the nested case-control study [GSE48091](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE48091) as part of the original research article by Cunha, Bocci, Lövrot, et al. Cancer Res 2015.
 
