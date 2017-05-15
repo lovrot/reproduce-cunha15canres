@@ -315,13 +315,16 @@ setdiff_tbl <- pData(qcsubstudy) %>%
   mutate(setdiff = case - control) %>%
   ## Spread into columns for original and re-extracted RNA
   select(marker, setnr, rna_extract, setdiff) %>%
-  spread(rna_extract, setdiff)
+  spread(rna_extract, setdiff) %>%
+  ## https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSM2178395 > Description
+  rowwise() %>%
+  mutate(set1002 = ifelse(setnr == 1022, "1022", "(rest)"))
 ```
 
 ```{r setdiffs, fig.height=4, fig.width=8, fig.cap = "Figure. Case-control set differences."}
 ggplot_setdiff <- function(data) {
   lim0 <- c(-1, 1) * max(abs(c(data$original, data$reextract)))
-  ggplot(data, aes(x = original, y = reextract)) +
+  ggplot(data, aes(x = original, y = reextract, shape = set1002)) +
     geom_vline(xintercept = 0, col = "darkgrey", linetype = "solid") +
     geom_hline(yintercept = 0, col = "darkgrey", linetype = "solid") +
     geom_abline(intercept = 0, slope = 1, col = "darkgrey", linetype = "dashed") +
@@ -329,6 +332,7 @@ ggplot_setdiff <- function(data) {
     facet_wrap(~ marker) +
     coord_fixed() +
     lims(x = lim0, y = lim0) +
+    scale_shape_manual(values = c("1022" = 1, "(rest)" = 16), guide = FALSE) +
     labs(
       x = "Case-control set difference\noriginal RNA",
       y = "Case-control set difference\nreextracted RNA")
