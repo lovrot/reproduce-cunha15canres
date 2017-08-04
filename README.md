@@ -8,7 +8,9 @@ Since not all clinical-pathological data is public, the analyses are not identic
 Instructions
 ------------
 
-To be added.
+1. Run src/cache-objects.R
+2. [Knit](http://yihui.name/knitr/) reports/addendum-train-illustrative-models.Rmd
+3. [Knit](http://yihui.name/knitr/) reports/reproduce-cunha15canres.Rmd
 
 A generated (draft) report can be viewed at [lovrot.github.io/reproduce-cunha15canres/index.html](http://lovrot.github.io/reproduce-cunha15canres/index.html).
 
